@@ -1,0 +1,252 @@
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Spotify Playlist Album Extractor</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Custom styles for better aesthetics */
+        body {
+            font-family: "Inter", sans-serif;
+            background-color: #f0f2f5;
+            display: flex;
+            justify-content: center;
+            align-items: center; /* Center vertically */
+            min-height: 100vh;
+            padding: 2rem;
+            box-sizing: border-box;
+        }
+        .container {
+            background-color: #ffffff;
+            border-radius: 1rem; /* More rounded corners */
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+            padding: 2.5rem;
+            width: 100%;
+            max-width: 800px;
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+        input[type="text"] {
+            border: 1px solid #d1d5db;
+            border-radius: 0.5rem;
+            padding: 0.75rem 1rem;
+            font-size: 1rem;
+            transition: all 0.2s ease-in-out;
+        }
+        input[type="text"]:focus {
+            outline: none;
+            border-color: #6366f1; /* Indigo-500 */
+            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
+        }
+        button {
+            background-color: #4f46e5; /* Indigo-600 */
+            color: white;
+            font-weight: 600;
+            padding: 0.75rem 1.5rem;
+            border-radius: 0.5rem;
+            transition: background-color 0.2s ease-in-out, transform 0.1s ease-in-out;
+            box-shadow: 0 4px 10px rgba(79, 70, 229, 0.3);
+            border: none;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #4338ca; /* Indigo-700 */
+            transform: translateY(-1px);
+        }
+        button:active {
+            transform: translateY(0);
+            box-shadow: 0 2px 5px rgba(79, 70, 229, 0.3);
+        }
+        .album-list-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.75rem 1rem;
+            background-color: #f9fafb;
+            border-radius: 0.5rem;
+            border: 1px solid #e5e7eb;
+            margin-bottom: 0.5rem;
+        }
+        .album-list-item:last-child {
+            margin-bottom: 0;
+        }
+        .album-name {
+            font-weight: 500;
+            color: #374151;
+        }
+        .artist-name {
+            font-size: 0.9rem;
+            color: #6b7280;
+        }
+        .loading-spinner {
+            border: 4px solid rgba(0, 0, 0, 0.1);
+            border-left-color: #4f46e5; /* Indigo-600 */
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto;
+            display: none; /* Hidden by default */
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .error-message {
+            background-color: #fee2e2; /* Red-100 */
+            color: #ef4444; /* Red-500 */
+            padding: 0.75rem 1rem;
+            border-radius: 0.5rem;
+            margin-top: 1rem;
+            display: none;
+        }
+        .success-message {
+            background-color: #dcfce7; /* Green-100 */
+            color: #22c55e; /* Green-500 */
+            padding: 0.75rem 1rem;
+            border-radius: 0.5rem;
+            margin-top: 1rem;
+            display: none;
+            text-align: center;
+            font-weight: 500;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 p-8 flex justify-center items-center min-h-screen">
+    <div class="container">
+        <h1 class="text-3xl font-bold text-center text-gray-800 mb-6">Spotify Playlist Album Extractor</h1>
+
+        <div class="flex flex-col md:flex-row gap-4">
+            <input type="text" id="playlistUrl" placeholder="Enter Public Spotify Playlist Share Link" class="flex-grow">
+            <button id="submitButton">Process Playlist</button>
+        </div>
+
+        <div id="loadingSpinner" class="loading-spinner"></div>
+        <div id="errorMessage" class="error-message"></div>
+        <div id="successMessage" class="success-message">We have processed your music request!</div>
+
+        <div id="albumListContainer" class="hidden">
+            <h2 class="text-2xl font-semibold text-gray-700 mt-6 mb-4">Extracted Albums:</h2>
+            <div id="albumList" class="bg-gray-50 p-4 rounded-lg border border-gray-200 h-96 overflow-y-auto">
+                <p class="text-gray-500 text-center py-4" id="noAlbumsMessage">No albums found in this playlist, or no playlists processed yet.</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const playlistUrlInput = document.getElementById('playlistUrl');
+        const submitButton = document.getElementById('submitButton');
+        const albumListContainer = document.getElementById('albumListContainer');
+        const albumListDiv = document.getElementById('albumList');
+        const loadingSpinner = document.getElementById('loadingSpinner');
+        const errorMessageDiv = document.getElementById('errorMessage');
+        const successMessageDiv = document.getElementById('successMessage'); // New element for success message
+        const noAlbumsMessage = document.getElementById('noAlbumsMessage');
+
+        const API_BASE_URL = 'http://127.0.0.1:5000'; // Flask app runs on port 5000 by default
+
+        // Function to display error messages
+        function displayError(message) {
+            errorMessageDiv.textContent = message;
+            errorMessageDiv.style.display = 'block';
+            albumListContainer.classList.add('hidden'); // Hide results on error
+            hideSuccess(); // Hide success message on error
+        }
+
+        // Function to hide error messages
+        function hideError() {
+            errorMessageDiv.style.display = 'none';
+            errorMessageDiv.textContent = '';
+        }
+
+        // Function to display success message
+        function displaySuccess(message) {
+            successMessageDiv.textContent = message;
+            successMessageDiv.style.display = 'block';
+        }
+
+        // Function to hide success message
+        function hideSuccess() {
+            successMessageDiv.style.display = 'none';
+            successMessageDiv.textContent = '';
+        }
+
+        // Function to show/hide loading spinner
+        function setLoading(isLoading) {
+            submitButton.disabled = isLoading;
+            playlistUrlInput.disabled = isLoading;
+            loadingSpinner.style.display = isLoading ? 'block' : 'none';
+        }
+
+        // Function to render albums in the list
+        function renderAlbums(albums) {
+            albumListDiv.innerHTML = ''; // Clear existing list
+            albumListContainer.classList.remove('hidden'); // Show the container
+
+            if (albums.length === 0) {
+                noAlbumsMessage.style.display = 'block';
+                albumListDiv.appendChild(noAlbumsMessage);
+                return;
+            } else {
+                noAlbumsMessage.style.display = 'none';
+            }
+
+            albums.forEach(album => {
+                const albumItem = document.createElement('div');
+                albumItem.className = 'album-list-item'; // Apply Tailwind classes
+                albumItem.innerHTML = `
+                    <span class="album-name">${album.name}</span>
+                    <span class="artist-name">${album.artist}</span>
+                `;
+                albumListDiv.appendChild(albumItem);
+            });
+        }
+
+        // Event listener for the submit button
+        submitButton.addEventListener('click', async () => {
+            const playlistUrl = playlistUrlInput.value.trim();
+            if (!playlistUrl) {
+                displayError('Please enter a Spotify playlist share link.');
+                return;
+            }
+
+            setLoading(true);
+            hideError();
+            hideSuccess(); // Hide any previous success message
+            albumListContainer.classList.add('hidden'); // Hide previous results while processing
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/process_playlist`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ playlist_url: playlistUrl }),
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    renderAlbums(data.albums);
+                    playlistUrlInput.value = ''; // Clear input on success
+                    displaySuccess('We have processed your music request!'); // Display success message
+                } else {
+                    displayError(`Error: ${data.error || 'Something went wrong.'}`);
+                }
+            } catch (error) {
+                console.error('Error processing playlist:', error);
+                displayError('Could not connect to the backend server. Please ensure the Flask app is running.');
+            } finally {
+                setLoading(false);
+            }
+        });
+
+        // Initially hide the album list container and success message
+        document.addEventListener('DOMContentLoaded', () => {
+            albumListContainer.classList.add('hidden');
+            successMessageDiv.style.display = 'none';
+        });
+    </script>
+</body>
+</html>
