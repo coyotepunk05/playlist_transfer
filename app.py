@@ -137,4 +137,4 @@ if __name__ == '__main__':
     # Ensure the albums file exists or is created empty on startup
     if not os.path.exists(ALBUMS_FILE):
         save_albums([])
-    app.run(debug=True) # Run in debug mode for development
+    app.run(debug=False) # Run in debug mode for development
