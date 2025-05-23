@@ -10,6 +10,8 @@ CORS(app) # Enable CORS for frontend communication
 
 # --- Spotify API Configuration ---
 # Prompt the user for Client ID and Client Secret
+# This will still prompt twice due to Flask's reloader in debug mode.
+# For production, consider using environment variables or a secure secret management system.
 SPOTIPY_CLIENT_ID = input("Please paste your Spotify Client ID and press Enter: ").strip()
 SPOTIPY_CLIENT_SECRET = input("Please paste your Spotify Client Secret and press Enter: ").strip()
 
@@ -33,36 +35,15 @@ except Exception as e:
     print(f"Error initializing Spotipy or validating credentials: {e}")
     print("Spotify API functionality will be limited or unavailable. Please check your Client ID and Client Secret.")
 
-# --- File to store album data ---
-ALBUMS_FILE = 'albums.json'
-
-def load_albums():
-    """Loads existing album data from the JSON file."""
-    if not os.path.exists(ALBUMS_FILE):
-        return []
-    try:
-        with open(ALBUMS_FILE, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    except json.JSONDecodeError:
-        print(f"Warning: {ALBUMS_FILE} is corrupted or empty. Starting with an empty list.")
-        return []
-    except Exception as e:
-        print(f"Error loading albums from file: {e}")
-        return []
-
-def save_albums(albums):
-    """Saves album data to the JSON file."""
-    try:
-        with open(ALBUMS_FILE, 'w', encoding='utf-8') as f:
-            json.dump(albums, f, indent=4)
-    except Exception as e:
-        print(f"Error saving albums to file: {e}")
+# --- Removed local file storage for albums.json ---
+# The application will no longer store album data on the server's disk.
 
 @app.route('/process_playlist', methods=['POST'])
 def process_playlist():
     """
     Processes a Spotify playlist URL, extracts album and artist information,
-    and updates the stored list of albums.
+    and returns the list of albums directly to the frontend.
+    No data is stored on the server.
     """
     data = request.get_json()
     playlist_url = data.get('playlist_url')
@@ -75,8 +56,7 @@ def process_playlist():
 
     try:
         # Extract playlist ID from URL
-        # Example URL: https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M
-        # ID is 37i9dQZF1DXcBWIGoYBM5M
+        # Example URL: https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M?si=...
         parts = playlist_url.split('/')
         playlist_id = None
         for i, part in enumerate(parts):
@@ -96,29 +76,26 @@ def process_playlist():
             results = sp.next(results)
             tracks.extend(results['items'])
 
-        current_albums = load_albums()
-        unique_albums = {(album['name'], album['artist']) for album in current_albums}
+        extracted_albums = []
+        unique_albums_set = set() # Use a set to track unique (album_name, artist_string) tuples
 
-        new_albums_found = []
         for item in tracks:
             track = item.get('track')
             if track and track.get('album') and track.get('artists'):
                 album_name = track['album']['name']
                 artist_names = [artist['name'] for artist in track['artists']]
-                # Join multiple artists with a comma for simplicity
                 artist_string = ", ".join(artist_names)
 
-                if (album_name, artist_string) not in unique_albums:
-                    unique_albums.add((album_name, artist_string))
-                    new_albums_found.append({'name': album_name, 'artist': artist_string})
+                # Add to unique set and list if not already present
+                if (album_name, artist_string) not in unique_albums_set:
+                    unique_albums_set.add((album_name, artist_string))
+                    extracted_albums.append({'name': album_name, 'artist': artist_string})
 
-        # Add newly found albums to the existing list
-        current_albums.extend(new_albums_found)
         # Sort the albums for consistent output (optional)
-        current_albums.sort(key=lambda x: (x['artist'].lower(), x['name'].lower()))
+        extracted_albums.sort(key=lambda x: (x['artist'].lower(), x['name'].lower()))
 
-        save_albums(current_albums)
-        return jsonify({'message': 'Playlist processed successfully', 'albums': current_albums}), 200
+        # Return the extracted albums directly
+        return jsonify({'message': 'Playlist processed successfully', 'albums': extracted_albums}), 200
 
     except spotipy.exceptions.SpotifyException as se:
         print(f"Spotify API Error: {se}")
@@ -127,14 +104,9 @@ def process_playlist():
         print(f"An unexpected error occurred: {e}")
         return jsonify({'error': f'An unexpected error occurred: {str(e)}'}), 500
 
-@app.route('/get_albums', methods=['GET'])
-def get_albums():
-    """Returns the current list of stored albums."""
-    albums = load_albums()
-    return jsonify({'albums': albums}), 200
+# The /get_albums route is no longer needed as data is not stored on the server.
 
 if __name__ == '__main__':
-    # Ensure the albums file exists or is created empty on startup
-    if not os.path.exists(ALBUMS_FILE):
-        save_albums([])
-    app.run(debug=False) # Run in debug mode for development
+    # Set debug to False for a more production-like environment.
+    # When debug=False, the reloader is off, preventing double prompts.
+    app.run(debug=False)
